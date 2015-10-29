@@ -1,0 +1,49 @@
+#!/usr/bin/make -f
+#
+# Suggested Usage: ocr-all-pdf -j4 -k ocr
+#
+# The "ocr-pdf" script must be in your path. Also requires:
+#
+# pdftotext from poppler-utils (Ubuntu)
+#
+
+all: ocr
+
+ALLPDF          := $(sort $(wildcard *.pdf))
+PLUSOCRPDF      := $(filter     %+OCR.pdf, $(ALLPDF))
+NOTPLUSOCRPDF   := $(filter-out %+OCR.pdf, $(ALLPDF))
+PDFNOPLUSOCRDUP := $(filter-out $(patsubst %+OCR.pdf, %.pdf, $(PLUSOCRPDF)), $(NOTPLUSOCRPDF))
+
+# SKIPOCRPDF := $(shell cat 0000-NO_OCR_List.txt)
+# PDFNOPLUSOCRDUP := $(filter-out $(SKIPOCRPDF), $(PDFNOPLUSOCRDUP))
+
+# This only works right when there are no spaces in file names.
+# The first call to pdftotext check to see that the command will run successfully;
+# That is, with no syntax errors in the pdf or whatever.
+NEEDOCRPDF := $(foreach PDF, $(PDFNOPLUSOCRDUP), $(shell				\
+	if pdftotext -f 1 -l 2 "$(PDF)" - >/dev/null; then				\
+	    if ! pdftotext -f 1 -l 2 "$(PDF)" - | grep -q -e '[a-zA-Z0-9]'; then	\
+		echo "$(PDF)";								\
+	    fi;										\
+	else										\
+	    echo "Bad PDF? : $(PDF)";							\
+	fi;))
+
+ocr: $(patsubst %.pdf, %+OCR.pdf, $(NEEDOCRPDF))
+
+$(patsubst %.pdf, %+OCR.pdf, $(NEEDOCRPDF)): %+OCR.pdf : %.pdf
+	ocr-pdf $< $@ > $*.ocr-pdf.log 2>&1
+
+
+CLEAN_FILES += $(patsubst %.pdf, %.pdfocr.log, $(NEEDOCRPDF))
+
+clean:
+	rm -f $(CLEAN_FILES)
+
+
+nospaces:
+	for f in *.pdf; do			\
+	    mv $$f $$(echo $$f | tr ' ' '_');	\
+	done;
+
+.PHONY: all ocr clean nospaces

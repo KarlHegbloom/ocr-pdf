@@ -1,0 +1,84 @@
+#!/bin/zsh
+set -e
+
+if [ -z "$1" -o -z "$2" ]; then
+    echo "Usage: "$(basename $0)" input.pdf output.pdf"
+    exit 1
+fi
+
+# Assume we are standing where the input and output are, no distant directory.
+# Assume file extension is .pdf
+
+IN=$1
+OUT=$2
+
+IN=$(basename $IN)
+if [ ! -f "$IN" ]; then
+    echo "$IN not found?"
+    echo "Must be in this directory."
+fi
+
+OCRTMPDIR=$(basename $IN .pdf).tmp_d
+mkdir $OCRTMPDIR
+ln $IN $OCRTMPDIR
+cd $OCRTMPDIR
+
+pdftk $IN dump_data output pdfdata
+
+# Assume that all of the images in the pdf are full page scan images.
+# They might be color or grayscale. If we convert gray to color the
+# final pdf will be way too huge, so we want to keep the same image
+# type and scale as the original PDF. Lets assume that we never scan
+# at lower than 300dpi, which is actually the optimal for tesseract.
+#
+pdfimages -all $IN p
+
+IMAGETYPE=$(pdfimages -list $IN | tail -n +3 | head -n 1 | sed -re 's,( +), ,g' | cut -f 10 -d' ')
+
+case $IMAGETYPE in
+    ccitt)
+        # For some reason, pdfimages does not put the -R option into the params.
+        # Get the Y-DPI, add -R option to params files.
+        declare -a RVALS
+        declare -i n
+        n=1
+        RVALS=( $(pdfimages -list $IN | tail -n +3 | sed -re 's,( +), ,g' | cut -f 15 -d' ') )
+        for f in p-*.ccitt; do
+            PARAMS=$(< $(basename $f .ccitt).params)
+            PARAMS="$PARAMS -R "$RVALS[$n]
+            n=$(( $n + 1 ))
+            fax2tiff $(echo $PARAMS) -o $(basename $f .ccitt).tif $f;
+        done
+        for f in *.tif; do
+            tesseract $f $(basename $f .tif) pdf;
+        done
+        
+        pdftk p-*.pdf cat output new.pdf
+        pdftk new.pdf update_info pdfdata output final.pdf
+        rm new.pdf
+        ln final.pdf ../$OUT
+        cd ..
+        rm -rf $OCRTMPDIR
+        exit 0
+        ;;
+    jpeg|jpg)
+        for f in p-*.jpg; do
+            tesseract $f $(basename $f .jpg) pdf;
+        done
+
+        pdftk p-*.pdf cat output new.pdf
+        pdftk new.pdf update_info pdfdata output final.pdf
+        rm new.pdf
+        ln final.pdf ../$OUT
+        cd ..
+        rm -rf $OCRTMPDIR
+        exit 0
+        ;;
+    *)
+        echo Lazy Stub Notice:
+        echo Extend the script to handle non-ccitt page images.
+        echo 'IN='$IN
+        echo 'Look in: '$OCRTMPDIR
+        exit 1
+        ;;
+esac
