@@ -6,6 +6,24 @@ if [ -z "$1" -o -z "$2" ]; then
     exit 1
 fi
 
+# Requires:
+#
+#   binary   :   ubuntu or deb package
+# ------------------------------------------------------
+#  basename  : coreutils
+#  pdfimages : poppler-utils
+#  pdftk     : pdftk
+#  fax2tiff  : libtiff-tools
+#  convert   : imagemagick (or convert-pgn ? not tested)
+#  tesseract : tesseract-ocr
+
+# for b in basename pdfimages pdftk fax2tiff convert tesseract; do
+#     if ! which $b > /dev/null 2>&1; then
+#         echo $b not found! >&2
+#         exit 1
+#     fi
+# done
+
 # Assume we are standing where the input and output are, no distant directory.
 # Assume file extension is .pdf
 
@@ -30,8 +48,24 @@ pdftk $IN dump_data output pdfdata
 # final pdf will be way too huge, so we want to keep the same image
 # type and scale as the original PDF. Lets assume that we never scan
 # at lower than 300dpi, which is actually the optimal for tesseract.
+# Actually I dont think anything in the script "assumes" that
+# really... Would the image need scaling? Cleanup with libpaper? Until
+# I have a scan that needs it the script does not have it.
 #
 pdfimages -all $IN p
+
+# When the images inside are stored as rgb but are really black and
+# white using -tiff caused them to be written as rgb tiff. If instead
+# they are written out as png images, then the 'convert' command is
+# run on them to turn them into tif, then ones that are really color
+# images will be color tiff, and the ones that are really black and
+# white will be black and white tiff. That's what we want. The "-all"
+# switch causes them to be written as png. This was tested with the
+# HP48g manual downloaded from hpcalc.org which is all black and white
+# except for the cover page, but inside of it, all of the images were
+# stored as rgb color images. Using 'convert' cut the final OCRd file
+# size to about half the original input file size, despite having OCR
+# data added! Nice.
 
 IMAGETYPE=$(pdfimages -list $IN | tail -n +3 | head -n 1 | sed -re 's,( +), ,g' | cut -f 10 -d' ')
 
@@ -52,33 +86,51 @@ case $IMAGETYPE in
         for f in *.tif; do
             tesseract $f $(basename $f .tif) pdf;
         done
-        
-        pdftk p-*.pdf cat output new.pdf
-        pdftk new.pdf update_info pdfdata output final.pdf
-        rm new.pdf
-        ln final.pdf ../$OUT
-        cd ..
-        rm -rf $OCRTMPDIR
-        exit 0
         ;;
+
     jpeg|jpg)
         for f in p-*.jpg; do
-            tesseract $f $(basename $f .jpg) pdf;
+            tesseract ${f} $(basename ${f} .jpg) pdf;
         done
-
-        pdftk p-*.pdf cat output new.pdf
-        pdftk new.pdf update_info pdfdata output final.pdf
-        rm new.pdf
-        ln final.pdf ../$OUT
-        cd ..
-        rm -rf $OCRTMPDIR
-        exit 0
         ;;
+
+    image)
+        if [ ! -f p-000.png ]; then
+            echo 'p-000.png not present for "image" images type?'
+            exit 1
+        fi
+        for f in p-*.png; do
+            local bn=$(basename ${f} .png)
+            # Convert to tif. See comment at top.
+            convert ${f} ${bn}.tif
+            #
+            # Todo: find out if it is necessary to set the tiff resolution, e.g.:
+            # tiffset -s 296 2 $tif;
+            # tiffset -s 282 300.0 $tif;
+            # tiffset -s 283 300.0 $tif;
+            # It may need to be computed based on the pdfinfo page size and the
+            # image width and height in pixels. For now assume that everything
+            # just works due to the:
+            #   "pdftk new.pdf update_info pdfdata output final.pdf"
+            # at the end of the script, below.
+            #
+            tesseract ${bn}.tif ${bn} pdf;
+        done
+        ;;
+
     *)
         echo Lazy Stub Notice:
-        echo Extend the script to handle non-ccitt page images.
-        echo 'IN='$IN
-        echo 'Look in: '$OCRTMPDIR
+        echo Extend the script to handle an unknown type of page images.
+        echo 'IN='${IN}
+        echo 'Look in: '${OCRTMPDIR}
         exit 1
         ;;
 esac
+
+pdftk p-*.pdf cat output new.pdf
+pdftk new.pdf update_info pdfdata output final.pdf
+rm new.pdf
+ln final.pdf ../${OUT}
+cd ..
+rm -rf ${OCRTMPDIR}
+exit 0
