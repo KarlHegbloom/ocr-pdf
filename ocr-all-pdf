@@ -9,13 +9,15 @@
 
 all: ocr
 
+SHELL := /bin/zsh
+
 ALLPDF          := $(sort $(wildcard *.pdf))
 PLUSOCRPDF      := $(filter     %+OCR.pdf, $(ALLPDF))
 NOTPLUSOCRPDF   := $(filter-out %+OCR.pdf, $(ALLPDF))
 PDFNOPLUSOCRDUP := $(filter-out $(patsubst %+OCR.pdf, %.pdf, $(PLUSOCRPDF)), $(NOTPLUSOCRPDF))
 
-# SKIPOCRPDF := $(shell cat 0000-NO_OCR_List.txt)
-# PDFNOPLUSOCRDUP := $(filter-out $(SKIPOCRPDF), $(PDFNOPLUSOCRDUP))
+SKIPOCRPDF := $(shell cat 0000-NO_OCR_List.txt)
+PDFNOPLUSOCRDUP := $(filter-out $(SKIPOCRPDF), $(PDFNOPLUSOCRDUP))
 
 # This only works right when there are no spaces in file names.
 # The first call to pdftotext check to see that the command will run successfully;
@@ -28,6 +30,11 @@ NEEDOCRPDF := $(foreach PDF, $(PDFNOPLUSOCRDUP), $(shell				\
 	else										\
 	    echo "Bad PDF? : $(PDF)";							\
 	fi;))
+
+printvars:
+	echo NEEDOCRPDF: $(NEEDOCRPDF);
+	echo ;
+	echo $(patsubst %.pdf, %+OCR.pdf, $(NEEDOCRPDF));
 
 ocr: $(patsubst %.pdf, %+OCR.pdf, $(NEEDOCRPDF))
 
@@ -46,4 +53,4 @@ nospaces:
 	    mv $$f $$(echo $$f | tr ' ' '_');	\
 	done;
 
-.PHONY: all ocr clean nospaces
+.PHONY: all printvars ocr clean nospaces
